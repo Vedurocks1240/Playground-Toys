@@ -6,8 +6,9 @@
     <title>Neuralink | Vedansh Jain</title>
     <style>
         :root {
-            --accent: #00f2ff;
-            --bg: #050505;
+            --accent: #add8e6; /* Light Blue */
+            --bg: #000000;    /* Pure Black */
+            --node: #444444;  /* Dark Grey */
         }
 
         body, html {
@@ -17,8 +18,10 @@
             height: 100%;
             overflow: hidden;
             background-color: var(--bg);
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            font-family: 'Inter', sans-serif;
             color: white;
+            /* Permanently hide the cursor across the entire site */
+            cursor: none;
         }
 
         #neural-canvas {
@@ -29,7 +32,6 @@
             z-index: 1;
         }
 
-        /* UI Overlay Layer */
         #ui-layer {
             position: relative;
             z-index: 10;
@@ -39,8 +41,9 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            transition: opacity 1s ease-in-out, visibility 1s;
-            background: radial-gradient(circle at center, rgba(5, 5, 5, 0.2) 0%, rgba(5, 5, 5, 0.8) 100%);
+            transition: opacity 1.2s ease;
+            background: transparent;
+            pointer-events: auto;
         }
 
         #ui-layer.hidden {
@@ -51,7 +54,7 @@
 
         .content-box {
             text-align: center;
-            letter-spacing: 0.2em;
+            letter-spacing: 0.3em;
         }
 
         h1 {
@@ -59,48 +62,46 @@
             font-weight: 200;
             margin: 0;
             text-transform: uppercase;
-            background: linear-gradient(to bottom, #fff, #888);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            color: #fff;
+            pointer-events: none;
         }
 
         .author {
-            font-size: 0.9rem;
-            color: #666;
-            margin-top: 10px;
+            font-size: 0.8rem;
+            color: #555;
+            margin-top: 15px;
             text-transform: uppercase;
+            pointer-events: none;
         }
 
         .btn-playground {
-            margin-top: 50px;
-            padding: 15px 40px;
+            margin-top: 60px;
+            padding: 12px 40px;
             background: transparent;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: white;
+            border: 1px solid #333;
+            color: #888;
             text-transform: uppercase;
-            letter-spacing: 0.3em;
-            cursor: pointer;
+            letter-spacing: 0.2em;
+            font-size: 0.7rem;
+            cursor: none; /* Keep cursor hidden on hover too */
             transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
+            pointer-events: auto;
         }
 
         .btn-playground:hover {
             border-color: var(--accent);
             color: var(--accent);
-            box-shadow: 0 0 20px rgba(0, 242, 255, 0.2);
         }
 
-        /* Exit Hint - shows briefly when in playground */
         #exit-hint {
             position: absolute;
-            bottom: 20px;
+            bottom: 30px;
             width: 100%;
             text-align: center;
-            color: rgba(255, 255, 255, 0.2);
-            font-size: 0.7rem;
+            color: #333;
+            font-size: 0.6rem;
             text-transform: uppercase;
-            letter-spacing: 0.1em;
+            letter-spacing: 0.2em;
             pointer-events: none;
             opacity: 0;
             transition: opacity 0.5s;
@@ -119,7 +120,7 @@
         </div>
     </div>
 
-    <div id="exit-hint">Move mouse or press Esc to return</div>
+    <div id="exit-hint">Press Esc to Return</div>
 
     <script>
         const canvas = document.getElementById('neural-canvas');
@@ -129,59 +130,92 @@
         
         let particles = [];
         const props = {
-            particleCount: 150,
-            particleMaxVelocity: 0.5,
-            lineMaxDist: 150,
-            mouseRadius: 250,
-            accent: '0, 242, 255'
+            particleCount: 160,
+            particleMaxVelocity: 0.35,
+            lineMaxDist: 140,
+            mouseRadius: 200,
+            accent: '173, 216, 230', // Light Blue
+            baseColor: '68, 68, 68'   // Dark Grey
         };
 
+        // Interaction State
         let mouse = { x: null, y: null };
         let isPlayground = false;
+        let idleTimer;
+        let isIdle = false;
+        let autoMouse = { x: 0, y: 0, angle: 0 };
+
+        // --- CALMING AUDIO ENGINE ---
+        let audioCtx;
+        function initAudio() {
+            if (audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            function playNote(freq, delay, duration) {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime + delay);
+                
+                gain.gain.setValueAtTime(0, audioCtx.currentTime + delay);
+                gain.gain.linearRampToValueAtTime(0.05, audioCtx.currentTime + delay + 1);
+                gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + delay + duration);
+                
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc.start(audioCtx.currentTime + delay);
+                osc.stop(audioCtx.currentTime + delay + duration);
+            }
+
+            const scale = [261.63, 293.66, 329.63, 392.00, 440.00]; // Pentatonic C
+            setInterval(() => {
+                if (!isPlayground) return;
+                const freq = scale[Math.floor(Math.random() * scale.length)];
+                playNote(freq / 2, 0, 8); // Deep pad
+                if (Math.random() > 0.5) playNote(scale[Math.floor(Math.random() * scale.length)] * 2, 2, 6);
+            }, 4000);
+        }
 
         function enterPlayground() {
             isPlayground = true;
             ui.classList.add('hidden');
+            hint.style.opacity = '1';
+            setTimeout(() => { hint.style.opacity = '0'; }, 3000);
             
-            // Standard full-screen requests are often blocked in sandboxed environments (iframes).
-            // We wrap it in a try-catch to avoid hard failures.
+            initAudio(); 
+            resetIdleTimer();
+
             try {
                 if (document.documentElement.requestFullscreen) {
-                    document.documentElement.requestFullscreen().catch(() => {
-                        console.log("Fullscreen request was denied by policy, proceeding in window.");
-                    });
+                    document.documentElement.requestFullscreen().catch(() => {});
                 }
-            } catch (e) {
-                console.log("Fullscreen API not available.");
-            }
-
-            // Show interactive hint briefly
-            hint.style.opacity = '1';
-            setTimeout(() => { hint.style.opacity = '0'; }, 4000);
+            } catch (e) {}
         }
 
-        // Listen for Esc key as a backup to return UI
+        function resetIdleTimer() {
+            clearTimeout(idleTimer);
+            isIdle = false;
+            idleTimer = setTimeout(() => {
+                isIdle = true;
+                autoMouse.x = mouse.x || canvas.width / 2;
+                autoMouse.y = mouse.y || canvas.height / 2;
+            }, 30000); 
+        }
+
         window.addEventListener('keydown', (e) => {
             if (e.key === "Escape" && isPlayground) {
                 isPlayground = false;
                 ui.classList.remove('hidden');
-                if (document.fullscreenElement) {
-                    document.exitFullscreen();
-                }
-            }
-        });
-
-        // Handle exiting fullscreen/returning UI automatically
-        document.addEventListener('fullscreenchange', () => {
-            if (!document.fullscreenElement && isPlayground) {
-                isPlayground = false;
-                ui.classList.remove('hidden');
+                if (document.fullscreenElement) document.exitFullscreen();
             }
         });
 
         window.addEventListener('mousemove', (e) => {
             mouse.x = e.clientX;
             mouse.y = e.clientY;
+            if (isPlayground) resetIdleTimer();
         });
 
         window.addEventListener('resize', () => {
@@ -199,6 +233,7 @@
                 this.y = Math.random() * canvas.height;
                 this.vx = (Math.random() * 2 - 1) * props.particleMaxVelocity;
                 this.vy = (Math.random() * 2 - 1) * props.particleMaxVelocity;
+                this.size = 1;
             }
             update() {
                 if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
@@ -218,15 +253,33 @@
         }
 
         function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            let targetX = mouse.x;
+            let targetY = mouse.y;
+
+            if (isIdle && isPlayground) {
+                autoMouse.angle += 0.005;
+                autoMouse.x += Math.cos(autoMouse.angle) * 1.5;
+                autoMouse.y += Math.sin(autoMouse.angle * 0.8) * 1.5;
+                
+                if (autoMouse.x < 0) autoMouse.x = canvas.width;
+                if (autoMouse.x > canvas.width) autoMouse.x = 0;
+                if (autoMouse.y < 0) autoMouse.y = canvas.height;
+                if (autoMouse.y > canvas.height) autoMouse.y = 0;
+
+                targetX = autoMouse.x;
+                targetY = autoMouse.y;
+            }
+
             for (let i = 0; i < particles.length; i++) {
                 let p = particles[i];
                 p.update();
                 
                 ctx.beginPath();
-                ctx.arc(p.x, p.y, 1, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${props.baseColor}, 0.8)`;
                 ctx.fill();
 
                 for (let j = i + 1; j < particles.length; j++) {
@@ -237,8 +290,8 @@
 
                     if (dist < props.lineMaxDist) {
                         let opacity = 1 - (dist / props.lineMaxDist);
-                        ctx.strokeStyle = `rgba(255, 255, 255, ${opacity * 0.15})`;
-                        ctx.lineWidth = 0.5;
+                        ctx.strokeStyle = `rgba(${props.baseColor}, ${opacity * 0.4})`;
+                        ctx.lineWidth = 0.6;
                         ctx.beginPath();
                         ctx.moveTo(p.x, p.y);
                         ctx.lineTo(p2.x, p2.y);
@@ -246,16 +299,17 @@
                     }
                 }
 
-                if (mouse.x !== null) {
-                    let mdx = p.x - mouse.x;
-                    let mdy = p.y - mouse.y;
+                if (targetX !== null) {
+                    let mdx = p.x - targetX;
+                    let mdy = p.y - targetY;
                     let mDist = Math.sqrt(mdx*mdx + mdy*mdy);
                     if (mDist < props.mouseRadius) {
                         let mOpacity = 1 - (mDist / props.mouseRadius);
-                        ctx.strokeStyle = `rgba(${props.accent}, ${mOpacity * 0.4})`;
+                        ctx.strokeStyle = `rgba(${props.accent}, ${mOpacity * 0.7})`;
+                        ctx.lineWidth = 0.8;
                         ctx.beginPath();
                         ctx.moveTo(p.x, p.y);
-                        ctx.lineTo(mouse.x, mouse.y);
+                        ctx.lineTo(targetX, targetY);
                         ctx.stroke();
                     }
                 }
