@@ -8,7 +8,7 @@
         :root {
             --accent: #add8e6; /* Light Blue */
             --bg: #000000;    /* Pure Black */
-            --node: #444444;  /* Dark Grey */
+            --node: #666666;  /* Brighter Grey for visibility */
         }
 
         body, html {
@@ -20,8 +20,7 @@
             background-color: var(--bg);
             font-family: 'Inter', sans-serif;
             color: white;
-            /* Permanently hide the cursor across the entire site */
-            cursor: none;
+            cursor: none; /* Permanent hidden cursor */
         }
 
         #neural-canvas {
@@ -43,7 +42,6 @@
             align-items: center;
             transition: opacity 1.2s ease;
             background: transparent;
-            pointer-events: auto;
         }
 
         #ui-layer.hidden {
@@ -83,7 +81,7 @@
             text-transform: uppercase;
             letter-spacing: 0.2em;
             font-size: 0.7rem;
-            cursor: none; /* Keep cursor hidden on hover too */
+            cursor: none;
             transition: all 0.3s ease;
             pointer-events: auto;
         }
@@ -98,7 +96,7 @@
             bottom: 30px;
             width: 100%;
             text-align: center;
-            color: #333;
+            color: #444;
             font-size: 0.6rem;
             text-transform: uppercase;
             letter-spacing: 0.2em;
@@ -132,10 +130,10 @@
         const props = {
             particleCount: 230,
             particleMaxVelocity: 0.5,
-            lineMaxDist: 130,
-            mouseRadius: 200,
-            accent: '173, 216, 230', // Light Blue
-            baseColor: '68, 68, 68'   // Dark Grey
+            lineMaxDist: 180,
+            mouseRadius: 250,
+            accent: '173, 216, 230',
+            baseColor: '100, 100, 100'
         };
 
         // Interaction State
@@ -143,39 +141,61 @@
         let isPlayground = false;
         let idleTimer;
         let isIdle = false;
-        let autoMouse = { x: 0, y: 0, angle: 0 };
+        
+        // Auto-navigation state
+        let autoMouse = { x: 0, y: 0 };
+        let currentTargetNode = null;
 
-        // --- CALMING AUDIO ENGINE ---
+        // Audio Engine
         let audioCtx;
         function initAudio() {
             if (audioCtx) return;
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            
-            function playNote(freq, delay, duration) {
-                const osc = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-                
-                osc.type = 'sine';
-                osc.frequency.setValueAtTime(freq, audioCtx.currentTime + delay);
-                
-                gain.gain.setValueAtTime(0, audioCtx.currentTime + delay);
-                gain.gain.linearRampToValueAtTime(0.05, audioCtx.currentTime + delay + 1);
-                gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + delay + duration);
-                
-                osc.connect(gain);
-                gain.connect(audioCtx.destination);
-                
-                osc.start(audioCtx.currentTime + delay);
-                osc.stop(audioCtx.currentTime + delay + duration);
-            }
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const scale = [130.81, 146.83, 164.81, 196.00, 220.00];
+                function playNote(freq, delay, duration) {
+                    const osc = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(freq, audioCtx.currentTime + delay);
+                    gain.gain.setValueAtTime(0, audioCtx.currentTime + delay);
+                    gain.gain.linearRampToValueAtTime(0.03, audioCtx.currentTime + delay + 1.5);
+                    gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + delay + duration);
+                    osc.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc.start(audioCtx.currentTime + delay);
+                    osc.stop(audioCtx.currentTime + delay + duration);
+                }
+                setInterval(() => {
+                    if (!isPlayground) return;
+                    const freq = scale[Math.floor(Math.random() * scale.length)];
+                    playNote(freq, 0, 10);
+                    if (Math.random() > 0.6) playNote(freq * 2, 2, 8);
+                }, 5000);
+            } catch (e) { console.warn("Audio init failed"); }
+        }
 
-            const scale = [261.63, 293.66, 329.63, 392.00, 440.00]; // Pentatonic C
-            setInterval(() => {
-                if (!isPlayground) return;
-                const freq = scale[Math.floor(Math.random() * scale.length)];
-                playNote(freq / 2, 0, 8); // Deep pad
-                if (Math.random() > 0.5) playNote(scale[Math.floor(Math.random() * scale.length)] * 2, 2, 6);
-            }, 4000);
+        function findLoneliestNode() {
+            if (particles.length === 0) return null;
+            
+            // Calculate connections for each particle based on current positions
+            let nodeConnections = particles.map(p => {
+                let count = 0;
+                for (let other of particles) {
+                    if (p === other) continue;
+                    let dx = p.x - other.x;
+                    let dy = p.y - other.y;
+                    if (Math.sqrt(dx*dx + dy*dy) < props.lineMaxDist) count++;
+                }
+                return { node: p, count: count };
+            });
+
+            // Sort to find the node with minimum connections
+            nodeConnections.sort((a, b) => a.count - b.count);
+            
+            // Return one of the loneliest ones randomly to keep movement organic
+            const candidates = nodeConnections.slice(0, 5);
+            return candidates[Math.floor(Math.random() * candidates.length)].node;
         }
 
         function enterPlayground() {
@@ -183,20 +203,19 @@
             ui.classList.add('hidden');
             hint.style.opacity = '1';
             setTimeout(() => { hint.style.opacity = '0'; }, 3000);
-            
             initAudio(); 
             resetIdleTimer();
-
-            try {
+            try { 
                 if (document.documentElement.requestFullscreen) {
                     document.documentElement.requestFullscreen().catch(() => {});
-                }
+                } 
             } catch (e) {}
         }
 
         function resetIdleTimer() {
             clearTimeout(idleTimer);
             isIdle = false;
+            currentTargetNode = null;
             idleTimer = setTimeout(() => {
                 isIdle = true;
                 autoMouse.x = mouse.x || canvas.width / 2;
@@ -208,7 +227,7 @@
             if (e.key === "Escape" && isPlayground) {
                 isPlayground = false;
                 ui.classList.remove('hidden');
-                if (document.fullscreenElement) document.exitFullscreen();
+                try { if (document.fullscreenElement) document.exitFullscreen(); } catch(e) {}
             }
         });
 
@@ -225,15 +244,13 @@
         });
 
         class Particle {
-            constructor() {
-                this.init();
-            }
+            constructor() { this.init(); }
             init() {
                 this.x = Math.random() * canvas.width;
                 this.y = Math.random() * canvas.height;
                 this.vx = (Math.random() * 2 - 1) * props.particleMaxVelocity;
                 this.vy = (Math.random() * 2 - 1) * props.particleMaxVelocity;
-                this.size = 1;
+                this.size = 0.8;
             }
             update() {
                 if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
@@ -260,14 +277,25 @@
             let targetY = mouse.y;
 
             if (isIdle && isPlayground) {
-                autoMouse.angle += 0.005;
-                autoMouse.x += Math.cos(autoMouse.angle) * 1.5;
-                autoMouse.y += Math.sin(autoMouse.angle * 0.8) * 1.5;
-                
-                if (autoMouse.x < 0) autoMouse.x = canvas.width;
-                if (autoMouse.x > canvas.width) autoMouse.x = 0;
-                if (autoMouse.y < 0) autoMouse.y = canvas.height;
-                if (autoMouse.y > canvas.height) autoMouse.y = 0;
+                // Determine target node if none exists or if we've reached the current one
+                if (!currentTargetNode) {
+                    currentTargetNode = findLoneliestNode();
+                }
+
+                if (currentTargetNode) {
+                    // Move autoMouse towards loneliest node with easing
+                    const dx = currentTargetNode.x - autoMouse.x;
+                    const dy = currentTargetNode.y - autoMouse.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    
+                    if (dist < 10) {
+                        // Reached node, find a new lonely one
+                        currentTargetNode = findLoneliestNode();
+                    } else {
+                        autoMouse.x += dx * 0.02; // Smooth travel
+                        autoMouse.y += dy * 0.02;
+                    }
+                }
 
                 targetX = autoMouse.x;
                 targetY = autoMouse.y;
@@ -279,7 +307,7 @@
                 
                 ctx.beginPath();
                 ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-                ctx.fillStyle = `rgba(${props.baseColor}, 0.8)`;
+                ctx.fillStyle = `rgba(${props.baseColor}, 0.5)`;
                 ctx.fill();
 
                 for (let j = i + 1; j < particles.length; j++) {
@@ -290,8 +318,8 @@
 
                     if (dist < props.lineMaxDist) {
                         let opacity = 1 - (dist / props.lineMaxDist);
-                        ctx.strokeStyle = `rgba(${props.baseColor}, ${opacity * 0.4})`;
-                        ctx.lineWidth = 0.6;
+                        ctx.strokeStyle = `rgba(${props.baseColor}, ${opacity * 0.3})`;
+                        ctx.lineWidth = 0.5;
                         ctx.beginPath();
                         ctx.moveTo(p.x, p.y);
                         ctx.lineTo(p2.x, p2.y);
@@ -305,8 +333,8 @@
                     let mDist = Math.sqrt(mdx*mdx + mdy*mdy);
                     if (mDist < props.mouseRadius) {
                         let mOpacity = 1 - (mDist / props.mouseRadius);
-                        ctx.strokeStyle = `rgba(${props.accent}, ${mOpacity * 0.7})`;
-                        ctx.lineWidth = 0.8;
+                        ctx.strokeStyle = `rgba(${props.accent}, ${mOpacity * 0.6})`;
+                        ctx.lineWidth = 0.7;
                         ctx.beginPath();
                         ctx.moveTo(p.x, p.y);
                         ctx.lineTo(targetX, targetY);
