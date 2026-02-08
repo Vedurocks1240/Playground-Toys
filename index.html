@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neuralink | Vedansh Jain</title>
+    <style>
+        :root {
+            --accent: #00f2ff;
+            --bg: #050505;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--bg);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: white;
+        }
+
+        #neural-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            display: block;
+            z-index: 1;
+        }
+
+        /* UI Overlay Layer */
+        #ui-layer {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 1s ease-in-out, visibility 1s;
+            background: radial-gradient(circle at center, rgba(5, 5, 5, 0.2) 0%, rgba(5, 5, 5, 0.8) 100%);
+        }
+
+        #ui-layer.hidden {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+
+        .content-box {
+            text-align: center;
+            letter-spacing: 0.2em;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            font-weight: 200;
+            margin: 0;
+            text-transform: uppercase;
+            background: linear-gradient(to bottom, #fff, #888);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .author {
+            font-size: 0.9rem;
+            color: #666;
+            margin-top: 10px;
+            text-transform: uppercase;
+        }
+
+        .btn-playground {
+            margin-top: 50px;
+            padding: 15px 40px;
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: white;
+            text-transform: uppercase;
+            letter-spacing: 0.3em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-playground:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            box-shadow: 0 0 20px rgba(0, 242, 255, 0.2);
+        }
+
+        /* Exit Hint - shows briefly when in playground */
+        #exit-hint {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255, 255, 255, 0.2);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="neural-canvas"></canvas>
+
+    <div id="ui-layer">
+        <div class="content-box">
+            <h1>Neuralink</h1>
+            <div class="author">from Vedansh Jain</div>
+            <button class="btn-playground" onclick="enterPlayground()">Playground</button>
+        </div>
+    </div>
+
+    <div id="exit-hint">Move mouse or press Esc to return</div>
+
+    <script>
+        const canvas = document.getElementById('neural-canvas');
+        const ctx = canvas.getContext('2d');
+        const ui = document.getElementById('ui-layer');
+        const hint = document.getElementById('exit-hint');
+        
+        let particles = [];
+        const props = {
+            particleCount: 150,
+            particleMaxVelocity: 0.5,
+            lineMaxDist: 150,
+            mouseRadius: 250,
+            accent: '0, 242, 255'
+        };
+
+        let mouse = { x: null, y: null };
+        let isPlayground = false;
+
+        function enterPlayground() {
+            isPlayground = true;
+            ui.classList.add('hidden');
+            
+            // Standard full-screen requests are often blocked in sandboxed environments (iframes).
+            // We wrap it in a try-catch to avoid hard failures.
+            try {
+                if (document.documentElement.requestFullscreen) {
+                    document.documentElement.requestFullscreen().catch(() => {
+                        console.log("Fullscreen request was denied by policy, proceeding in window.");
+                    });
+                }
+            } catch (e) {
+                console.log("Fullscreen API not available.");
+            }
+
+            // Show interactive hint briefly
+            hint.style.opacity = '1';
+            setTimeout(() => { hint.style.opacity = '0'; }, 4000);
+        }
+
+        // Listen for Esc key as a backup to return UI
+        window.addEventListener('keydown', (e) => {
+            if (e.key === "Escape" && isPlayground) {
+                isPlayground = false;
+                ui.classList.remove('hidden');
+                if (document.fullscreenElement) {
+                    document.exitFullscreen();
+                }
+            }
+        });
+
+        // Handle exiting fullscreen/returning UI automatically
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement && isPlayground) {
+                isPlayground = false;
+                ui.classList.remove('hidden');
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            init();
+        });
+
+        class Particle {
+            constructor() {
+                this.init();
+            }
+            init() {
+                this.x = Math.random() * canvas.width;
+                this.y = Math.random() * canvas.height;
+                this.vx = (Math.random() * 2 - 1) * props.particleMaxVelocity;
+                this.vy = (Math.random() * 2 - 1) * props.particleMaxVelocity;
+            }
+            update() {
+                if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+                if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+                this.x += this.vx;
+                this.y += this.vy;
+            }
+        }
+
+        function init() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            particles = [];
+            for (let i = 0; i < props.particleCount; i++) {
+                particles.push(new Particle());
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            for (let i = 0; i < particles.length; i++) {
+                let p = particles[i];
+                p.update();
+                
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 1, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.fill();
+
+                for (let j = i + 1; j < particles.length; j++) {
+                    let p2 = particles[j];
+                    let dx = p.x - p2.x;
+                    let dy = p.y - p2.y;
+                    let dist = Math.sqrt(dx*dx + dy*dy);
+
+                    if (dist < props.lineMaxDist) {
+                        let opacity = 1 - (dist / props.lineMaxDist);
+                        ctx.strokeStyle = `rgba(255, 255, 255, ${opacity * 0.15})`;
+                        ctx.lineWidth = 0.5;
+                        ctx.beginPath();
+                        ctx.moveTo(p.x, p.y);
+                        ctx.lineTo(p2.x, p2.y);
+                        ctx.stroke();
+                    }
+                }
+
+                if (mouse.x !== null) {
+                    let mdx = p.x - mouse.x;
+                    let mdy = p.y - mouse.y;
+                    let mDist = Math.sqrt(mdx*mdx + mdy*mdy);
+                    if (mDist < props.mouseRadius) {
+                        let mOpacity = 1 - (mDist / props.mouseRadius);
+                        ctx.strokeStyle = `rgba(${props.accent}, ${mOpacity * 0.4})`;
+                        ctx.beginPath();
+                        ctx.moveTo(p.x, p.y);
+                        ctx.lineTo(mouse.x, mouse.y);
+                        ctx.stroke();
+                    }
+                }
+            }
+            requestAnimationFrame(draw);
+        }
+
+        init();
+        draw();
+    </script>
+</body>
+</html>
